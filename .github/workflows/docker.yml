@@ -52,6 +52,7 @@ jobs:
           type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
     - name: Build and push Docker image
+      id: build
       uses: docker/build-push-action@v5
       with:
         context: .
@@ -66,20 +67,4 @@ jobs:
 
     - name: Image digest
       if: github.event_name != 'pull_request'
-      run: echo "Image pushed with digest: ${{ steps.build.outputs.digest }}"
-
-  cleanup-old-images:
-    runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    needs: build-and-push
-    
-    steps:
-    - name: Delete old images
-      uses: actions/delete-package-versions@v4
-      with:
-        package-name: 'sanskrit-tts'
-        package-type: 'container'
-        min-versions-to-keep: 5
-        delete-only-untagged-versions: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: echo "Image pushed with digest - ${{ steps.build.outputs.digest }}"
