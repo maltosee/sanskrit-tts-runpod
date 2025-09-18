@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.8-devel-ubuntu22.04
+FROM nvidia/cuda:12.1-cudnn8-devel-ubuntu22.04
 
 # Metadata
 LABEL maintainer="your-email@domain.com"
