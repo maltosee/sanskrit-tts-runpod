@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+tts.log
+
+# Model files (large files)
+*.bin
+*.safetensors
+models/
+checkpoints/
+
+# Docker
+.dockerignore
+
+# Secrets
+.env
+secrets.txt
+*.key
+*.pem
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+
+# Test files
+test_*.wav
+test_*.mp3
+output_*.wav
+*.wav

@@ -1,0 +1,8 @@
+runpod>=1.6.0
+requests>=2.25.0
+torch>=2.0.0
+transformers>=4.40.0
+accelerate>=0.21.0
+numpy>=1.21.0
+soundfile>=0.12.1
+git+https://github.com/huggingface/parler-tts.git
