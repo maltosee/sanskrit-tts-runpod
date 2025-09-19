@@ -14,7 +14,7 @@ WORKDIR /workspace
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       apt-utils dos2unix curl ca-certificates build-essential \
-      python3 python3-pip python3-venv wget supervisor gnupg2 git && \
+      python3 python3-pip python3-venv wget gnupg2 git && \
     rm -rf /var/lib/apt/lists/*
 
 # ----------------------------------------------------------------------
@@ -41,9 +41,8 @@ COPY . /workspace
 RUN if [ -f package.json ]; then npm ci --no-audit --no-fund; fi
 
 # ----------------------------------------------------------------------
-# Supervisor config + entrypoint
+# entrypoint
 # ----------------------------------------------------------------------
-COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY entrypoint.sh /workspace/entrypoint.sh
 RUN chmod +x /workspace/entrypoint.sh
 
