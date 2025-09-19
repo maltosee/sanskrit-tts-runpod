@@ -1,48 +1,46 @@
+# Dockerfile - build-time installs everything; Node 18 via NodeSource; supervisord for process mgmt.
 FROM ubuntu:22.04
 
-# Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
+ENV HF_HOME=/workspace/huggingface_cache
 ENV PYTHONUNBUFFERED=1
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    python3.10 \
-    python3.10-dev \
-    python3-pip \
-    git \
-    wget \
-    curl \
-    build-essential \
-    libsndfile1 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create symbolic link for python
-RUN ln -s /usr/bin/python3.10 /usr/bin/python
-
-# Set working directory
 WORKDIR /workspace
 
-# Upgrade pip
-RUN python -m pip install --upgrade pip
+# System deps (baked)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      apt-utils dos2unix curl ca-certificates build-essential \
+      python3 python3-pip python3-venv wget supervisor gnupg2 && \
+    rm -rf /var/lib/apt/lists/*
 
-# Install PyTorch with CUDA support
-RUN pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu118
+# Install Node 18.x (NodeSource), ensures node & npm versions like v18.x / npm 10.x
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get update && apt-get install -y --no-install-recommends nodejs && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copy and install requirements
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+# Copy requirements and install python deps
+COPY requirements.txt /workspace/requirements.txt
+RUN python3 -m pip install --upgrade pip setuptools wheel && \
+    pip3 install -r /workspace/requirements.txt && \
+    rm -rf /root/.cache/pip
 
-# Install parler-tts
-RUN pip install git+https://github.com/huggingface/parler-tts.git
+# Copy app code (load_balancer_config.json is included)
+COPY . /workspace
 
-# Copy TTS files
-COPY runpod_tts_handler.py .
-COPY direct_tts_server.py .
-COPY start_tts.sh .
-RUN chmod +x start_tts.sh
+# Install node deps only if package.json present
+RUN if [ -f package.json ]; then npm ci --no-audit --no-fund; fi
 
-# Expose port
-EXPOSE 8888
+# Provide supervisor config & entrypoint
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY entrypoint.sh /workspace/entrypoint.sh
+RUN chmod +x /workspace/entrypoint.sh
 
-# Default command
-CMD ["python", "direct_tts_server.py"]
+# Minimal env adjustments to keep transformers quiet & reduce logs
+ENV TRANSFORMERS_VERBOSITY=error
+ENV HF_HUB_DISABLE_PROGRESS_BARS=1
+ENV TRANSFORMERS_NO_ADVISORY_WARNINGS=1
+
+# Expose ports (Runpod UI screenshot: 80,8888,8889,8000)
+EXPOSE 80 8888 8889 8000
+
+CMD ["/workspace/entrypoint.sh"]

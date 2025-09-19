@@ -1,0 +1,18 @@
+{
+  "port": 80,
+  "tts_instances": [8888, 8889, 8000],
+
+  "health_check_interval": 30000,
+  "health_check_timeout": 4000,
+
+  "max_active_requests": 5,
+  "request_timeout": 30000,
+
+  "max_consecutive_failures": 10,
+  "circuit_breaker_timeout": 180000,
+
+  "logging": {
+    "level": "error",
+    "enable_request_logging": false
+  }
+}

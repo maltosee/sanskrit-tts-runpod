@@ -2,6 +2,13 @@ from runpod_tts_handler import handler, HANDLER_VERSION, test_handler
 import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+import argparse
+
+# Add argument parsing
+parser = argparse.ArgumentParser(description='TTS Server')
+parser.add_argument('--port', type=int, default=8888, help='Port to run server on')
+args = parser.parse_args()
+
 class TTSHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path == "/generate":
@@ -47,7 +54,13 @@ if __name__ == "__main__":
     print("🔥 Running warmup test...")
     test_handler()
 
-    # Start HTTP server
-    print("🌐 Starting HTTP server on port 8888...")
-    server = HTTPServer(("0.0.0.0", 8888), TTSHandler)
-    server.serve_forever()
+    server = HTTPServer(("0.0.0.0", args.port), TTSHandler)
+    print(f"🌐 Starting TTS server on port {args.port}")
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("✋ KeyboardInterrupt received, shutting down server...")
+    finally:
+        server.server_close()
+        print("🛑 Server closed.")
