@@ -8,7 +8,7 @@ HEALTH_RETRY_INTERVAL=2   # seconds between probes
 MAX_HEALTH_WAIT=60        # give up after this many seconds per worker
 
 echo "Starting supervisord..."
-/usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf &
+/usr/bin/supervisord -c /etc/supervisor/supervisord.conf &
 SUP_PID=$!
 
 # helper: start program and wait for health
