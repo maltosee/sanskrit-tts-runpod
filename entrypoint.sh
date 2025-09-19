@@ -1,153 +1,166 @@
 #!/usr/bin/env bash
-# Very-simple entrypoint restarter
 set -euo pipefail
 
-# CONFIG (tweak if desired)
-MIN_SPACING_SECS=60
-FINAL_LB_DELAY_SECS=150
-HEALTH_TIMEOUT=4
-HEALTH_RETRY_INTERVAL=2
-MAX_HEALTH_WAIT=60
-
-MONITOR_INTERVAL=5
-MAX_RESTARTS=5    # stop attempting after this many restarts for a process
-
-# Process definitions: name|cmd|health_port
-PROCS=(
-  "tts_8888|python3 /workspace/direct_tts_server.py --port 8888|8888"
-  "tts_8889|python3 /workspace/direct_tts_server.py --port 8889|8889"
-  "tts_8000|python3 /workspace/direct_tts_server.py --port 8000|8000"
-)
-LB_NAME="lb"
-LB_CMD="node /workspace/tts_load_balancer.js"
+# Timeouts
+TTS_WARMUP_TIMEOUT=240  # 4 minutes per TTS
+LB_TIMEOUT=120         # 2 minutes for LB
+HEALTH_CHECK_INTERVAL=5
+MONITOR_INTERVAL=10
 
 declare -A PID
-declare -A RESTART_COUNT
-declare -A DISABLED
+declare -A TTS_RESTARTED
 
-log(){ printf '%s %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$*"; }
+log() { printf '%s %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$*"; }
 
-start_proc_bg() {
-  local name="$1"; shift
-  local cmd="$*"
-  log "START -> $name : $cmd"
-  # start in background inheriting stdout/stderr
-  bash -c "$cmd" &
+start_tts_and_wait() {
+  local port="$1"
+  local name="tts_${port}"
+  
+  log "Starting $name"
+  python3 /workspace/direct_tts_server.py --port "$port" &
   PID["$name"]=$!
   log "PID ${PID[$name]} for $name"
+  
+  log "Waiting for $name health on port $port..."
+  local deadline=$(($(date +%s) + TTS_WARMUP_TIMEOUT))
+  while [ $(date +%s) -lt $deadline ]; do
+    if curl -s --max-time 3 "http://127.0.0.1:${port}/health" | grep -q "healthy" 2>/dev/null; then
+      log "$name healthy"
+      return 0
+    fi
+    sleep $HEALTH_CHECK_INTERVAL
+  done
+  
+  log "ERROR: $name did not become healthy within ${TTS_WARMUP_TIMEOUT}s"
+  return 1
+}
+
+restart_tts_once() {
+  local port="$1"
+  local name="tts_${port}"
+  
+  if [ "${TTS_RESTARTED[$name]:-0}" -eq 1 ]; then
+    log "$name already restarted once, giving up"
+    return 1
+  fi
+  
+  log "Restarting $name (one attempt only)"
+  TTS_RESTARTED["$name"]=1
+  
+  # Kill old process (GPU cleanup handled by atexit in Python)
+  local old_pid="${PID[$name]:-}"
+  if [ -n "$old_pid" ]; then
+    log "Killing old $name process $old_pid"
+    kill "$old_pid" 2>/dev/null || true
+    sleep 3  # Give process time to clean up
+  fi
+  
+  start_tts_and_wait "$port"
+}
+
+start_lb() {
+  log "Starting load balancer"
+  node /workspace/tts_load_balancer.js &
+  PID["lb"]=$!
+  log "PID ${PID[lb]} for load balancer"
+  
+  # Wait for LB to be responsive
+  log "Waiting for load balancer health..."
+  local deadline=$(($(date +%s) + LB_TIMEOUT))
+  while [ $(date +%s) -lt $deadline ]; do
+    if curl -s --max-time 3 "http://127.0.0.1:80/health" >/dev/null 2>&1; then
+      log "Load balancer healthy"
+      return 0
+    fi
+    sleep $HEALTH_CHECK_INTERVAL
+  done
+  
+  log "ERROR: Load balancer failed to start within ${LB_TIMEOUT}s"
+  return 1
+}
+
+restart_lb() {
+  local attempts="${LB_RESTART_ATTEMPTS:-0}"
+  if [ "$attempts" -ge 3 ]; then
+    log "Load balancer exceeded 3 restart attempts, giving up"
+    return 1
+  fi
+  
+  LB_RESTART_ATTEMPTS=$((attempts + 1))
+  log "Restarting load balancer (attempt ${LB_RESTART_ATTEMPTS}/3)"
+  
+  # Kill old process
+  local old_pid="${PID[lb]:-}"
+  if [ -n "$old_pid" ]; then
+    log "Killing old load balancer process $old_pid"
+    kill "$old_pid" 2>/dev/null || true
+    sleep 2
+  fi
+  
+  start_lb
 }
 
 is_running() {
   local name="$1"
   local pid="${PID[$name]:-}"
-  if [ -z "$pid" ]; then return 1; fi
-  if kill -0 "$pid" 2>/dev/null; then return 0; else return 1; fi
-}
-
-wait_for_health() {
-  local port="$1"
-  local deadline=$(( $(date +%s) + MAX_HEALTH_WAIT ))
-  while true; do
-    if curl -s --max-time $HEALTH_TIMEOUT "http://127.0.0.1:${port}/health" | grep -q -E "200|healthy|ok"; then
-      return 0
-    fi
-    if [ "$(date +%s)" -ge "$deadline" ]; then
-      return 1
-    fi
-    sleep $HEALTH_RETRY_INTERVAL
-  done
-}
-
-attempt_restart_simple() {
-  local name="$1"; shift
-  local cmd="$*"
-  RESTART_COUNT["$name"]=$(( ${RESTART_COUNT["$name"]:-0} + 1 ))
-  if [ "${RESTART_COUNT["$name"]}" -gt "$MAX_RESTARTS" ]; then
-    log "ERROR: $name exceeded MAX_RESTARTS (${RESTART_COUNT["$name"]}). Disabling further restarts."
-    DISABLED["$name"]=1
-    return 1
-  fi
-  log "RESTART -> $name (attempt ${RESTART_COUNT["$name"]}/${MAX_RESTARTS})"
-  start_proc_bg "$name" "$cmd"
-  return 0
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
 }
 
 cleanup() {
   log "Entrypoint shutting down; killing children"
-  for n in "${!PID[@]}"; do
-    pid=${PID[$n]}
+  for name in "${!PID[@]}"; do
+    local pid="${PID[$name]}"
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
       kill "$pid" 2>/dev/null || true
     fi
   done
-  # brief grace
-  sleep 1
+  sleep 2  # Give processes time to clean up
 }
 trap cleanup EXIT
 
-# ---- Startup sequence: TTS in order ----
-last_start=0
-for entry in "${PROCS[@]}"; do
-  IFS='|' read -r name cmd port <<< "$entry"
-  # spacing
-  if [ "$last_start" -ne 0 ]; then
-    elapsed=$(( $(date +%s) - last_start ))
-    if [ "$elapsed" -lt "$MIN_SPACING_SECS" ]; then
-      wait_for=$(( MIN_SPACING_SECS - elapsed ))
-      log "Enforcing spacing: sleeping ${wait_for}s before starting $name"
-      sleep "$wait_for"
-    fi
-  fi
-
-  start_proc_bg "$name" "$cmd"
-
-  log "Waiting for $name health on port $port..."
-  if wait_for_health "$port"; then
-    log "$name healthy"
-  else
-    log "ERROR: $name did not become healthy within ${MAX_HEALTH_WAIT}s. Exiting."
+# Sequential TTS startup
+log "Starting TTS instances sequentially..."
+for port in 8888 8889 8000; do
+  if ! start_tts_and_wait "$port"; then
+    log "Failed to start TTS on port $port, exiting"
     exit 1
   fi
-
-  last_start=$(date +%s)
+  sleep 5  # Brief pause between TTS starts
 done
 
-log "All TTS healthy. Waiting final LB delay ${FINAL_LB_DELAY_SECS}s"
-sleep "$FINAL_LB_DELAY_SECS"
+log "All TTS instances ready. Starting load balancer..."
+if ! start_lb; then
+  log "Failed to start load balancer, exiting"
+  exit 1
+fi
 
-# Start LB
-start_proc_bg "$LB_NAME" "$LB_CMD"
+log "All services started successfully. Entering monitor loop (interval ${MONITOR_INTERVAL}s)"
 
-# ---- Monitor loop: simple restart logic ----
-log "Entering monitor loop (interval ${MONITOR_INTERVAL}s)"
+# Monitor and restart loop
+LB_RESTART_ATTEMPTS=0
 while true; do
-  sleep "$MONITOR_INTERVAL"
-  # check TTS processes
-  for entry in "${PROCS[@]}"; do
-    IFS='|' read -r name cmd port <<< "$entry"
-    if [ "${DISABLED[$name]:-0}" -eq 1 ]; then
-      continue
-    fi
+  sleep $MONITOR_INTERVAL
+  
+  # Check TTS instances
+  for port in 8888 8889 8000; do
+    local name="tts_${port}"
     if ! is_running "$name"; then
       log "Detected $name not running"
-      attempt_restart_simple "$name" "$cmd"
-      # after restart, give it a moment before health-check
-      sleep 2
-      if ! is_running "$name"; then
-        log "Warning: $name restart did not stay up"
+      if restart_tts_once "$port"; then
+        log "$name restarted successfully"
+      else
+        log "$name restart failed permanently - continuing with remaining instances"
       fi
     fi
   done
-
-  # check LB
-  if [ "${DISABLED[$LB_NAME]:-0}" -ne 1 ]; then
-    if ! is_running "$LB_NAME"; then
-      log "Detected $LB_NAME not running"
-      attempt_restart_simple "$LB_NAME" "$LB_CMD"
-      sleep 1
-      if ! is_running "$LB_NAME"; then
-        log "Warning: $LB_NAME restart did not stay up"
-      fi
+  
+  # Check load balancer
+  if ! is_running "lb"; then
+    log "Detected load balancer not running"
+    if restart_lb; then
+      log "Load balancer restarted successfully"
+    else
+      log "Load balancer restart failed permanently - service degraded"
     fi
   fi
 done

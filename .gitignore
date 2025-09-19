@@ -46,6 +46,7 @@ tts.log
 *.safetensors
 models/
 checkpoints/
+node_modules/
 
 # Docker
 .dockerignore

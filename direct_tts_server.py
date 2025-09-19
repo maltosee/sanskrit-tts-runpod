@@ -1,13 +1,25 @@
 from runpod_tts_handler import handler, HANDLER_VERSION, test_handler
 import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
-
 import argparse
+import atexit
 
 # Add argument parsing
 parser = argparse.ArgumentParser(description='TTS Server')
 parser.add_argument('--port', type=int, default=8888, help='Port to run server on')
 args = parser.parse_args()
+
+def cleanup_gpu_memory():
+    """Clean up GPU memory for this process only"""
+    try:
+        import torch
+        torch.cuda.empty_cache()
+        print("🧹 GPU memory cleaned up")
+    except:
+        pass
+
+# Register cleanup to run on ANY process exit (crash, kill, normal)
+atexit.register(cleanup_gpu_memory)
 
 class TTSHandler(BaseHTTPRequestHandler):
     def do_POST(self):
