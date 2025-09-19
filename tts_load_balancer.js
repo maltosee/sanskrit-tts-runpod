@@ -148,31 +148,23 @@ app.post("/generate", async (req, res) => {
 
     clearTimeout(timer);
 
-    // propagate status and safe headers
-    res.status(upstream.status);
-    upstream.headers.forEach((v, k) => {
-      const kl = k.toLowerCase();
-      if (!["connection", "keep-alive", "transfer-encoding", "upgrade"].includes(kl)) {
-        res.setHeader(k, v);
-      }
-    });
-
-    // If streaming body present, pipe it
-    if (upstream.body) {
-      upstream.body.pipe(res);
-      // ensure any upstream errors mark instance unhealthy
-      upstream.body.on("error", (err) => {
-        console.error("Upstream body error:", err && err.message ? err.message : err);
-        inst.healthy = false;
-      });
-    } else {
-      const txt = await upstream.text().catch(() => "");
-      res.send(txt);
+    if (!upstream.ok) {
+      throw new Error(`Upstream returned ${upstream.status}`);
     }
 
+    // Get JSON response from TTS instance
+    const ttsResponse = await upstream.json();
+    
+    // Verify it has the expected structure for BEAM compatibility
+    if (!ttsResponse.audio_buffers || !Array.isArray(ttsResponse.audio_buffers)) {
+      throw new Error("Invalid TTS response format - missing audio_buffers array");
+    }
+
+    // Pass through the complete JSON response with proper headers
+    res.status(200).json(ttsResponse);
+
     // Successful upstream response -> reset consecutiveFailures
-    if (upstream.ok) inst.consecutiveFailures = 0;
-    else inst.consecutiveFailures++;
+    inst.consecutiveFailures = 0;
 
   } catch (err) {
     console.error(`Proxy error to ${inst.url}:`, err && err.message ? err.message : err);

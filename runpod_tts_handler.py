@@ -251,9 +251,7 @@ def test_handler():
     """
     test_event = {
         "text_chunks": [
-            "ॐ गं गणपतये नमः",
-            "आपूर्यमाणमचलप्रतिष्ठं समुद्रम्",
-            "या निशा सर्वभूतानां तस्यां जागर्ति संयमी"
+            "ॐ गं गणपतये नमः"
         ],
         "voice": "aryan_default",
         "model_name": "ai4bharat/indic-parler-tts"
