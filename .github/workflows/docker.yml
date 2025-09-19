@@ -19,11 +19,21 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Debug step to confirm secrets are non-empty
+      - name: Debug secrets
+        run: |
+          echo "DOCKER_USERNAME length: ${#DOCKER_USERNAME}"
+          echo "DOCKERHUB_TOKEN length: ${#DOCKERHUB_TOKEN}"
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
+          registry: docker.io
           username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_TOKEN }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -31,10 +41,10 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ secrets.DOCKER_USERNAME }}/sanskrit-tts:latest
-            ${{ secrets.DOCKER_USERNAME }}/sanskrit-tts:${{ github.sha }}
-          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/sanskrit-tts:buildcache
-          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/sanskrit-tts:buildcache,mode=max
+            ${{ secrets.DOCKER_USERNAME }}/my-tts:latest
+            ${{ secrets.DOCKER_USERNAME }}/my-tts:${{ github.sha }}
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/my-tts:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/my-tts:buildcache,mode=max
 
       - name: Show image digest
         run: echo "Digest ${{ steps.build-and-push.outputs.digest }}"
