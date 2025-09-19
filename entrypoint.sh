@@ -143,7 +143,7 @@ while true; do
   
   # Check TTS instances
   for port in 8888 8889 8000; do
-    local name="tts_${port}"
+    name="tts_${port}"
     if ! is_running "$name"; then
       log "Detected $name not running"
       if restart_tts_once "$port"; then
