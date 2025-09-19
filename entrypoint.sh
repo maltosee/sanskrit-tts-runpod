@@ -11,6 +11,30 @@ echo "Starting supervisord..."
 /usr/bin/supervisord -c /etc/supervisor/supervisord.conf &
 SUP_PID=$!
 
+# Wait for supervisord socket to be ready
+echo "Waiting for supervisord socket..."
+for i in {1..30}; do
+  if [ -S /var/run/supervisor.sock ]; then
+    echo "Supervisord socket ready"
+    break
+  fi
+  echo "Socket not ready, waiting... ($i/30)"
+  sleep 1
+done
+
+if [ ! -S /var/run/supervisor.sock ]; then
+  echo "ERROR: supervisord socket not ready after 30s"
+  exit 1
+fi
+
+# Test supervisorctl connectivity
+echo "Testing supervisorctl connectivity..."
+if ! /usr/bin/supervisorctl status >/dev/null 2>&1; then
+  echo "ERROR: supervisorctl cannot connect to supervisord"
+  exit 1
+fi
+echo "Supervisorctl connectivity confirmed"
+
 # helper: start program and wait for health
 start_and_wait() {
   prog="$1"
